@@ -1063,7 +1063,7 @@ class JobPackagerHorizontal(object):
                         total_processors = int(self.processors_node) * nodes
                     else:
                         total_processors = job_total_processors
-                    if (self._current_processors + total_processors) <= int(self.max_processors):
+                    if self.max_processors == -1 or (self._current_processors + total_processors) <= int(self.max_processors):  # max_processors not set == infinite
                         current_package.append(job)
                         self._current_processors += total_processors
                         current_package_by_section[section] += 1
