@@ -35,12 +35,7 @@ class WrapperDirector:
 
         header = self._builder.build_header()
         job_thread = self._builder.build_job_thread()
-        #if "bash" not in header[0:15]:
-
         main = self._builder.build_main()
-        #else:
-        #    nodes,main = self._builder.build_main() #What to do with nodes?
-        # change to WrapperScript object
         wrapper_script = header + job_thread + main
         wrapper_script = wrapper_script.replace("_NEWLINE_", '\\n')
 
@@ -726,41 +721,44 @@ class SrunWrapperBuilder(WrapperBuilder):
         return self.get_nodes() + self.build_cores_list()
 
     def get_nodes(self):
-
-        return textwrap.dedent("""
+        return textwrap.dedent(f"""
         # Getting the list of allocated nodes
-        {0}
-        os.system("mkdir -p machinefiles")
+        {self.allocated_nodes}
+        mkdir -p machinefiles
 
-        with open("node_list_{{0}}".format(node_id), 'r') as file:
-             all_nodes = file.read()
-        os.remove("node_list_{{0}}".format(node_id))
+        all_nodes=$(cat "node_list_${{node_id}}")
+        rm "node_list_${{node_id}}"
 
-        all_nodes = all_nodes.split("_NEWLINE_")
-        if all_nodes[-1] == "":
-            all_nodes = all_nodes[:-1]
-        print(all_nodes)
-        """).format(self.allocated_nodes, '\n'.ljust(13))
+        IFS='_NEWLINE_' read -r -a all_nodes_array <<< "$all_nodes"
+        if [ -z "${{all_nodes_array[-1]}}" ]; then
+            unset 'all_nodes_array[-1]'
+        fi
+        echo "${{all_nodes_array[@]}}"
+        """)
 
     def build_cores_list(self):
-        return textwrap.dedent("""
-total_cores = {0}
-jobs_resources = {1}
-processors_per_node = int(jobs_resources['PROCESSORS_PER_NODE'])
-idx = 0
-all_cores = []
-while total_cores > 0:
-    if processors_per_node > 0:
-        processors_per_node -= 1
-        total_cores -= 1
-        all_cores.append(all_nodes[idx])
-    else:
-        if idx < len(all_nodes)-1:
-            idx += 1
-        processors_per_node = int(jobs_resources['PROCESSORS_PER_NODE'])
+        return textwrap.dedent(f"""
+total_cores=${self.num_procs_value}
+jobs_resources=${self.jobs_resources}
+processors_per_node=$(echo $jobs_resources | jq -r '.PROCESSORS_PER_NODE')
+idx=0
+all_cores=()
 
-processors_per_node = int(jobs_resources['PROCESSORS_PER_NODE'])
-        """).format(self.num_procs_value, str(self.jobs_resources), '\n'.ljust(13))
+while [ $total_cores -gt 0 ]; do
+    if [ $processors_per_node -gt 0 ]; then
+        processors_per_node=$((processors_per_node - 1))
+        total_cores=$((total_cores - 1))
+        all_cores+=("${{all_nodes[$idx]}}")
+    else
+        if [ $idx -lt $(( ${{#all_nodes[@]}} - 1 )) ]; then
+            idx=$((idx + 1))
+        fi
+        processors_per_node=$(echo $jobs_resources | jq -r '.PROCESSORS_PER_NODE')
+    fi
+done
+
+processors_per_node=$(echo $jobs_resources | jq -r '.PROCESSORS_PER_NODE')
+        """)
 
     def build_machinefiles(self):
         machinefile_function = self.get_machinefile_function()
@@ -769,66 +767,81 @@ processors_per_node = int(jobs_resources['PROCESSORS_PER_NODE'])
         return ""
 
     def build_machinefiles_standard(self):
-        return textwrap.dedent("""
-            machines = str()
-            cores = int(jobs_resources[section]['PROCESSORS'])
-            tasks = int(jobs_resources[section]['TASKS'])
-            nodes = int(ceil(int(cores)/float(tasks)))
-            if tasks < processors_per_node:
-                cores = tasks
-            job_cores = cores
-            while nodes > 0:
-                while cores > 0:
-                    if len(all_cores) > 0:
-                        node = all_cores.pop(0)
-                        if node:
-                            machines += node +"_NEWLINE_"
-                            cores -= 1
-                for rest in range(processors_per_node-tasks):
-                    if len(all_cores) > 0:
-                        all_cores.pop(0)
-                nodes -= 1
-                if tasks < processors_per_node:
-                    cores = job_cores
-        """).format('\n'.ljust(13))
+        return textwrap.dedent(f"""
+machines=''
+cores=$(echo $jobs_resources | jq -r ".${{section}}.PROCESSORS")
+tasks=$(echo $jobs_resources | jq -r ".${{section}}.TASKS")
+nodes=$(echo "scale=0; ($cores + $tasks - 1) / $tasks" | bc) # Equivalent to ceil(cores / tasks)
+if [ $tasks -lt $processors_per_node ]; then
+    cores=$tasks
+fi
+job_cores=$cores
+while [ $nodes -gt 0 ]; do
+    while [ $cores -gt 0 ]; do
+        if [ ${{#all_cores[@]}} -gt 0 ]; then
+            node=${{all_cores[0]}}
+            all_cores=("${{all_cores[@]:1}}")
+            if [ -n "$node" ]; then
+                machines+="$node_NEWLINE_"
+                cores=$((cores - 1))
+            fi
+        fi
+    done
+    for ((rest=0; rest<processors_per_node-tasks; rest++)); do
+        if [ ${{#all_cores[@]}} -gt 0 ]; then
+            all_cores=("${{all_cores[@]:1}}")
+        fi
+    done
+    nodes=$((nodes - 1))
+    if [ $tasks -lt $processors_per_node ]; then
+        cores=$job_cores
+    fi
+done
+        """)
 
     def _create_components_dict(self):
-        return textwrap.dedent("""
-        xio_procs = int(jobs_resources[section]['COMPONENTS']['XIO_NUMPROC'])
-        rnf_procs = int(jobs_resources[section]['COMPONENTS']['RNF_NUMPROC'])
-        ifs_procs = int(jobs_resources[section]['COMPONENTS']['IFS_NUMPROC'])
-        nem_procs = int(jobs_resources[section]['COMPONENTS']['NEM_NUMPROC'])
+        return textwrap.dedent(f"""
+xio_procs=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS.XIO_NUMPROC")
+rnf_procs=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS.RNF_NUMPROC")
+ifs_procs=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS.IFS_NUMPROC")
+nem_procs=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS.NEM_NUMPROC")
 
-        components = OrderedDict([
-            ('XIO', xio_procs),
-            ('RNF', rnf_procs),
-            ('IFS', ifs_procs),
-            ('NEM', nem_procs)
-        ])
+components=$(jq -n \
+    --arg xio "$xio_procs" \
+    --arg rnf "$rnf_procs" \
+    --arg ifs "$ifs_procs" \
+    --arg nem "$nem_procs" \
+    '{{XIO: $xio, RNF: $rnf, IFS: $ifs, NEM: $nem}}')
 
-        jobs_resources[section]['COMPONENTS'] = components
-        """).format('\n'.ljust(13))
+jobs_resources=$(echo $jobs_resources | jq ".${{section}}.COMPONENTS = $components")
+        """)
 
     def build_machinefiles_components(self):
-        return textwrap.dedent("""
-        {0}
+        return textwrap.dedent(f"""
+        {self._create_components_dict()}
 
-        machines = str()
-        for component, cores in jobs_resources[section]['COMPONENTS'].items():        
-            while cores > 0:
-                if len(all_cores) > 0:
-                    node = all_cores.pop(0)
-                    if node:
-                        machines += node +"_NEWLINE_"
-                        cores -= 1
-        """).format(self._create_components_dict(), '\n'.ljust(13))
+machines=""
+for component in $(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS | keys[]"); do
+    cores=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS[$component]")
+    while [ $cores -gt 0 ]; do
+        if [ ${{#all_cores[@]}} -gt 0 ]; then
+            node=${{all_cores[0]}}
+            all_cores=("${{all_cores[@]:1}}")
+            if [ -n "$node" ]; then
+                machines+="$node_NEWLINE_"
+                cores=$((cores - 1))
+            fi
+        fi
+    done
+done
+        """)
 
     def write_machinefiles(self):
-        return textwrap.dedent("""
-        machines = "_NEWLINE_".join([s for s in machines.split("_NEWLINE_") if s])
-        with open("machinefiles/machinefile_"+{0}, "w") as machinefile:
-            machinefile.write(machines)
-        """).format(self.machinefiles_name, '\n'.ljust(13))
+        return textwrap.dedent(f"""
+        machines=$(echo "$machines" | tr '_NEWLINE_' '\\n' | sed '/^$/d' | tr '\\n' '_NEWLINE_')
+        machines=${{machines%_NEWLINE_}}
+        echo "$machines" > "machinefiles/machinefile_${self.machinefiles_name}"
+        """)
 
     def build_srun_launcher(self, jobs_list, footer=True):
         pass
@@ -893,6 +906,7 @@ class SrunHorizontalWrapperBuilder(SrunWrapperBuilder):
         nodelist = self.build_nodes_list()
         srun_launcher = self.build_srun_launcher("scripts")
         return nodelist + srun_launcher
+
 class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
     def build_imports(self):
         scripts_bash = textwrap.dedent("""

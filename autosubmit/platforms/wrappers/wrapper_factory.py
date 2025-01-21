@@ -40,7 +40,7 @@ class WrapperFactory(object):
                 kwargs['num_processors'] = "#"
             else:
                 kwargs['num_processors'] = self.processors(kwargs['num_processors_value'])
-            kwargs['allocated_nodes'] = self.allocated_nodes()
+            kwargs['allocated_nodes'] = self.allocated_nodes(kwargs['method'])
             kwargs['dependency'] = self.dependency(kwargs['dependency'])
             kwargs['partition'] = self.partition(wrapper_data.partition)
             kwargs["exclusive"] = self.exclusive(wrapper_data.exclusive)
@@ -86,7 +86,7 @@ class WrapperFactory(object):
     def header_directives(self, **kwargs):
         pass
 
-    def allocated_nodes(self):
+    def allocated_nodes(self, method):
         return ''
 
     def reservation(self, reservation):
@@ -268,8 +268,8 @@ class SlurmWrapperFactory(WrapperFactory):
     def header_directives(self, **kwargs):
         return self.platform.wrapper_header(**kwargs)
 
-    def allocated_nodes(self):
-        return self.platform.allocated_nodes()
+    def allocated_nodes(self, method):
+        return self.platform.allocated_nodes(method)
 
     def reservation_directive(self, reservation):
         return "#SBATCH --reservation={0}".format(reservation)
@@ -315,8 +315,8 @@ class PJMWrapperFactory(WrapperFactory):
     def header_directives(self, **kwargs):
         return self.platform.wrapper_header(**kwargs)
 
-    def allocated_nodes(self):
-        return self.platform.allocated_nodes()
+    def allocated_nodes(self, method):
+        return self.platform.allocated_nodes(method)
 
     def reservation_directive(self, reservation):
         return "#" # Reservation directive doesn't exist in PJM, they're handled directly by admins
@@ -359,5 +359,3 @@ class EcWrapperFactory(WrapperFactory):
 
     def dependency_directive(self, dependency):
         return '#PBS -v depend=afterok:{0}'.format(dependency)
-
-
