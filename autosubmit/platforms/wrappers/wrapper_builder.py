@@ -740,9 +740,9 @@ class SrunWrapperBuilder(WrapperBuilder):
 
     def build_cores_list(self):
         return textwrap.dedent(f"""
-total_cores=${self.num_procs_value}
-jobs_resources=${self.jobs_resources}
-processors_per_node=$(echo $jobs_resources | jq -r '.PROCESSORS_PER_NODE')
+total_cores={self.num_procs_value}
+jobs_resources={self.jobs_resources}
+processors_per_node=$(python3 -c "import json; print(json.loads('$jobs_resources')['PROCESSORS_PER_NODE'])")
 idx=0
 all_cores=()
 
@@ -755,11 +755,13 @@ while [ $total_cores -gt 0 ]; do
         if [ $idx -lt $(( ${{#all_nodes[@]}} - 1 )) ]; then
             idx=$((idx + 1))
         fi
-        processors_per_node=$(echo $jobs_resources | jq -r '.PROCESSORS_PER_NODE')
+        processors_per_node=$(python3 -c "import json; print(json.loads('$jobs_resources')['PROCESSORS_PER_NODE'])")
+
     fi
 done
 
-processors_per_node=$(echo $jobs_resources | jq -r '.PROCESSORS_PER_NODE')
+processors_per_node=$(python3 -c "import json; print(json.loads('$jobs_resources')['PROCESSORS_PER_NODE'])")
+
         """)
 
     def build_machinefiles(self):
@@ -1033,6 +1035,7 @@ class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
             fi
         done
         wait
+        # TODO <- FAILED file creation when an inner job fails
         """).format(jobs_list, self.threads_number, '\n'.ljust(13))
 
         return srun_launcher
