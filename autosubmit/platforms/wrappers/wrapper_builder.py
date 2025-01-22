@@ -741,7 +741,7 @@ class SrunWrapperBuilder(WrapperBuilder):
     def build_cores_list(self):
         return textwrap.dedent(f"""
 total_cores={self.num_procs_value}
-jobs_resources={self.jobs_resources}
+jobs_resources='{self.jobs_resources}'
 processors_per_node=$(python3 -c "import json; print(json.loads('$jobs_resources')['PROCESSORS_PER_NODE'])")
 idx=0
 all_cores=()
@@ -825,7 +825,7 @@ jobs_resources=$(echo $jobs_resources | jq ".${{section}}.COMPONENTS = $componen
         {self._create_components_dict()}
 
 machines=""
-for component in $(echo $jobs_resources | jq -r ".${{section}}.COM:wPONENTS | keys[]"); do
+for component in $(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS | keys[]"); do
     cores=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS[$component]")
     while [ $cores -gt 0 ]; do
         if [ ${{#all_cores[@]}} -gt 0 ]; then
