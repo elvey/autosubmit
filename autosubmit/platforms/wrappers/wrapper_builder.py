@@ -892,7 +892,7 @@ class SrunHorizontalWrapperBuilder(SrunWrapperBuilder):
     def build_main(self):
         nodelist = self.build_nodes_list()
         srun_launcher = self.build_srun_launcher("scripts")
-        return nodelist, srun_launcher
+        return nodelist + srun_launcher
 class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
     def build_imports(self):
         scripts_bash = textwrap.dedent("""
