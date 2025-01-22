@@ -823,7 +823,7 @@ jobs_resources=$(echo $jobs_resources | jq ".${{section}}.COMPONENTS = $componen
         {self._create_components_dict()}
 
 machines=""
-for component in $(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS | keys[]"); do
+for component in $(echo $jobs_resources | jq -r ".${{section}}.COM:wPONENTS | keys[]"); do
     cores=$(echo $jobs_resources | jq -r ".${{section}}.COMPONENTS[$component]")
     while [ $cores -gt 0 ]; do
         if [ ${{#all_cores[@]}} -gt 0 ]; then
@@ -976,6 +976,7 @@ class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
         as_index=0
         horizontal_size=${{#scripts_index[@]}}
         scripts_size=${{#scripts_0[@]}}
+        job_failed=0
         while [ "${{#aux_scripts[@]}}" -gt 0 ]; do
             i_list=0
             for script_list in "${{{0}[@]}}"; do
@@ -995,29 +996,41 @@ class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
                         if [ $job_index -eq 0 ]; then
                             prev_template=$template
                         else
-                            #prev_template=${{prev_horizontal_scripts[$job_index]}}
                             prev_template=${{scripts[((job_index-1))]}}
                         fi
                         completed_filename=${{prev_template%"$suffix"}}
                         completed_filename="$completed_filename"_COMPLETED
                         completed_path=${{PWD}}/$completed_filename
-                        if [ $job_index -eq 0 ] || [ -f "$completed_path" ]; then #If first horizontal wrapper or last wrapper is completed
+                        if [ ! $job_index -eq 0 ] && ( ! lsof "$err" > /dev/null 2>&1 && ! lsof "$out" > /dev/null 2>&1 ) && [ ! -f "$completed_path" ]; then
+                            job_failed=1
+                            break
+                        fi
+                        if [ $job_index -eq 0 ] || [ -f "$completed_path" ]; then # If first horizontal wrapper or last wrapper is completed
                             srun -N1 --ntasks=1 --cpus-per-task={1} --cpu-bind=verbose,mask_cpu:job_mask_array[$job_index]  --distribution=block:block $template > $out 2> $err &
                             job_index=$(($job_index+1))
-                            
                         else
                             break
                         fi
                     done
+                    if [ "$job_failed" ]; then
+                        break
+                    fi
                     if [ $job_index -ge "${{#scripts[@]}}" ];  then
                         unset aux_scripts[$i_list]
                         job_index=-1
                     fi
                 fi
+                if [ "$job_failed" ]; then
+                    break
+                fi
                 prev_script=("${{script_list[@]}}")
                 scripts_index[$i_list]=$job_index
                 i_list=$((i_list+1)) # check next list ( needed for save list index )
             done
+            if [ "$job_failed" ]; then
+                echo "Some inner job failed. Check the logs."
+                break
+            fi
         done
         wait
         """).format(jobs_list, self.threads_number, '\n'.ljust(13))
