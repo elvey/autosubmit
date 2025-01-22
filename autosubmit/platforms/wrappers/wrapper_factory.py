@@ -49,6 +49,10 @@ class WrapperFactory(object):
             kwargs["custom_directives"] = self.custom_directives(wrapper_data.custom_directives)
             kwargs['queue'] = self.queue(wrapper_data.queue)
             kwargs['threads'] = self.threads(wrapper_data.threads)
+            if kwargs['threads'] == '#':
+                kwargs['threads_number'] = '1'
+            else:
+                kwargs['threads_number'] = kwargs['threads'].split('=')[1]
             kwargs['reservation'] = self.reservation(wrapper_data.reservation)
 
         kwargs["executable"] = wrapper_data.executable

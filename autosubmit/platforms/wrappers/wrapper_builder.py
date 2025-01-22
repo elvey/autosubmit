@@ -30,6 +30,7 @@ class WrapperDirector:
     """
     def __init__(self):
         self._builder = None
+
     def construct(self, builder):
         self._builder = builder
 
@@ -47,6 +48,7 @@ class WrapperBuilder(object):
         self.header_directive = kwargs['header_directive']
         self.job_scripts = kwargs['jobs_scripts']
         self.threads = kwargs['threads']
+        self.threads_number = kwargs['threads_number']
         self.num_procs = kwargs['num_processors']
         self.num_procs_value = kwargs['num_processors_value']
         self.expid = kwargs['expid']
@@ -884,7 +886,7 @@ class SrunHorizontalWrapperBuilder(SrunWrapperBuilder):
             ((i=i+1))
         done
         wait
-        """).format(jobs_list, self.threads, '\n'.ljust(13))
+        """).format(jobs_list, self.threads_number, '\n'.ljust(13))
         if footer:
             srun_launcher += self._indent(textwrap.dedent("""
         for template in "${{{0}[@]}}"; do
@@ -933,7 +935,7 @@ class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
                    """).format(str(scripts_array_vars),str(scripts_array_index), '\n'.ljust(13))
 
         total_threads = float(len(self.job_scripts))
-        n_threads = float(self.threads)
+        n_threads = float(self.threads_number)
         core = []
         for thread in range(int(n_threads)):
             core.append(0x0)
@@ -1018,11 +1020,11 @@ class SrunVerticalHorizontalWrapperBuilder(SrunWrapperBuilder):
             done
         done
         wait
-        """).format(jobs_list, self.threads, '\n'.ljust(13))
+        """).format(jobs_list, self.threads_number, '\n'.ljust(13))
 
         return srun_launcher
 
     def build_main(self):
         nodelist = self.build_nodes_list()
         srun_launcher = self.build_srun_launcher("scripts_list")
-        return nodelist, srun_launcher
+        return nodelist + srun_launcher
